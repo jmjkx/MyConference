@@ -1,0 +1,10 @@
+{
+    "python.pythonPath": "/home/liyuan/anaconda3/envs/Torch16/bin/python",
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": true,
+    "python.languageServer": "Pylance",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.useLibraryCodeForTypes": false,
+    "python.analysis.autoSearchPaths": false,
+    "python.analysis.autoImportCompletions": false,
+}

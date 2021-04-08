@@ -1,0 +1,8 @@
+set visually
+set Doorbells
+let pleader = "\"
+map <leader>a :action $SelectAll<CR>
+map <leader>c :action $Copy<CR>
+map <leader>v :action $Paste<CR>
+map <leader>x :action $Cut<CR>
+inoremap jk <Esc>

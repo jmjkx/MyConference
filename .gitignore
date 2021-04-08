@@ -1,0 +1,16 @@
+*.npy
+nni
+*.pyc
+*.mat
+/jiangwei/
+*.iiplab-server
+*.pdf
+/Double-Branch-Dual-Attention-Mechanism-Network/
+/model_search/
+/nni/
+/writer/
+/bloodcell1-3/
+/bloodcell2-2/
+*.out
+*.jpg
+*.txt
