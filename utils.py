@@ -1,3 +1,4 @@
+import glob
 import multiprocessing as mp
 import os
 import pickle
@@ -10,26 +11,38 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset as BaseDataset
+from tqdm import tqdm
+
+
+def get_posgt(d, dataclass):
+    pos_files = sorted(glob.glob(d +'X%sind_class*.npy'%dataclass), key=lambda x: int(x[-5]))
+    datasetPos = []
+    for f in pos_files:
+        datasetPos += list(np.load(f))
+    gt_files = sorted(glob.glob(d +'Y%s_class*.npy'%dataclass), key=lambda x: int(x[-5]))
+    datasetGt = []
+    for f in gt_files:
+        datasetGt += list(np.load(f))
+    return datasetPos, datasetGt
 
 
 def normlize(patch):
     norm_patch = np.zeros(shape=patch.shape)
     for batchidx in range(patch.shape[0]):
-        for l in range(patch.shape[1]):
-            for w in range(patch.shape[2]):
-                image = patch[batchidx, l, w, :]
-                assert image.max()-image.min() != 0, 'aaaaa'
-                image = (image-image.min())/(image.max()-image.min())
-                norm_patch[batchidx, l, w, :] = image
+        if len(patch[0].shape) > 2:
+            norm_patch[batchidx] = normlize(patch[batchidx])
+        else:
+            image = patch[batchidx, :]
+            image = (image-image.min())/(image.max()-image.min())
+            norm_patch[batchidx, :] = image
     return norm_patch
 
 
 def bd_subtask(image_classindlist, gt_class , IMAGE, patchsize, reduction_matrix):
-    print('==================subtask number %s======================='%str(len(image_classindlist)))
     img_gt = zip(image_classindlist, gt_class)
     imgpatch= np.empty(shape=(len(image_classindlist), patchsize, patchsize, 33))
     map = []
-    for idx, (img_indice, gt) in enumerate(img_gt):
+    for idx, (img_indice, gt) in enumerate(tqdm(img_gt)):
         for i in range(patchsize):
             for j in range(patchsize):
                 if any([img_indice[0]-patchsize//2 + i  < 0,
@@ -40,61 +53,73 @@ def bd_subtask(image_classindlist, gt_class , IMAGE, patchsize, reduction_matrix
                 else:
                     imgpatch[idx, i, j, :] = IMAGE[img_indice[0]-patchsize//2 + i, 
                                                    img_indice[1]-patchsize//2 + j, :]
-        map.append(gt)    
-    imgpatch = normlize(imgpatch)
-    print('================subtask end=====================')
-    return imgpatch, np.array(map)
-
-
-def build_data(IMAGE, patchsize,  datapath, dataclass, reduction_matrix=None):
-    sum = 0
-    pklName = {'Tr': 'train_patchgt.pkl',
-               'Te': 'test_patchgt.pkl',
-               'Va': 'valid_patchgt.pkl',
-               }
         
-    if os.path.exists(datapath + pklName[dataclass]):
-        with open(datapath + pklName[dataclass], 'rb') as f:
-            pklfile = pickle.load(f)
-        if reduction_matrix is not None:
-            pklfile['patch'] = np.matmul(pklfile['patch'], reduction_matrix)
-        return pklfile['patch'], pklfile['gt']
-    else:
-        for label in range(3):
-            image_classindlist = list(np.load(datapath + 'X%sind_class%s.npy'%(dataclass, label)))
-            gt_class = list(np.load(datapath  + '/Y%s_class%s.npy'%(dataclass, label)))
-            sum += len(image_classindlist)
-        imgpatch = np.empty(shape=(sum, patchsize, patchsize, 33))
+    imgpatch = normlize(imgpatch)
+    return imgpatch
 
-        image_classindlist = []
-        gt_class = []
-        for label in range(3):
-            image_classindlist += list(np.load(datapath + 'X%sind_class%s.npy'%(dataclass, label)))
-            gt_class += list(np.load(datapath  + '/Y%s_class%s.npy'%(dataclass, label)))
 
-        tasknumber = len(image_classindlist)//50000+1
-        p = mp.Pool(tasknumber)
-        print('starting')
-        results = [p.apply_async(bd_subtask, args=(image_classindlist[i*50000: (i+1)*50000], 
-                                                    gt_class[i*50000: (i+1)*50000], 
-                                                    IMAGE, patchsize, reduction_matrix)) 
-                for i in range(tasknumber)]
-        p.close()
-        p.join()
-        results = [p.get() for p in results]
-        for idx, (imp, imgt) in enumerate(results):
-            imgpatch[idx*50000:idx*50000+imp.shape[0]] = imp
-        pklfile = {'patch': imgpatch, 'gt': np.array(gt_class)} 
-        with open(datapath + pklName[dataclass], 'wb') as f:
-            pickle.dump(pklfile, f, pickle.HIGHEST_PROTOCOL)
-        if reduction_matrix is not None:
-            imgpatch = np.matmul(imgpatch, reduction_matrix)
-        return imgpatch, np.array(gt_class)
+class DataPreProcess(object):
+    def __init__(self,
+                 IMAGE,
+                 patchsize, 
+                 datapath,
+                 dataclass,
+                 reduction_matrix=None,
+                 tasknum=20) -> None:
+        self.IMAGE = IMAGE
+        self.patchsize = patchsize
+        self.datapath = datapath
+        self.dataclass = dataclass
+        self.reduction_matrix = reduction_matrix
+        self.tasknum = tasknum
+        self._build()
+        pass
+    
+    def _build(self):
+        pklName = {'Tr': 'TrainData.pkl',
+                   'Te': 'TestData.pkl',
+                   'Va': 'ValidData.pkl', }
+        
+        try:
+            with open(self.datapath + pklName[self.dataclass], 'rb') as f:
+                pklfile = pickle.load(f)
+            if self.reduction_matrix is not None:
+                pklfile['patch'] = np.matmul(pklfile['patch'], self.reduction_matrix)
+            self.patch = pklfile['patch']
+            self.gt = pklfile['gt']
+            self.pos = pklfile['pos']
+            print('Lucky Dog! ' + self.dataclass + ' data already exists!')
 
+        except (FileNotFoundError, KeyError):
+            self.pos, self.gt = get_posgt(self.datapath, self.dataclass)
+            sample_number = len(self.pos)
+            imgpatch = np.empty(shape=(sample_number, self.patchsize, self.patchsize, 33))
+            interval = sample_number//self.tasknum
+            interval += 1
+            print('=================== {0} {2} samples to process with {1} multi-process  ===================='.format(len(self.pos), self.tasknum, self.dataclass))
+            p = mp.Pool(self.tasknum)
+            print('starting')
+            results = [p.apply_async(bd_subtask, args=(self.pos[i*interval: (i+1)*interval],
+                                                       self.gt[i*interval: (i+1)*interval],
+                                                       self.IMAGE, self.patchsize, self.reduction_matrix))
+                       for i in range(self.tasknum)]
+            p.close()
+            p.join()
+            results = [p.get() for p in results]
+            for idx, imp in enumerate(results):
+                imgpatch[idx*interval:idx*interval+imp.shape[0]] = imp
+            pklfile = {'patch': imgpatch, 'gt': np.array(self.gt), 'pos': np.array(self.pos)} 
+            with open(self.datapath + pklName[self.dataclass], 'wb') as f:
+                pickle.dump(pklfile, f, pickle.HIGHEST_PROTOCOL)
+            if self.reduction_matrix is not None:
+                imgpatch = np.matmul(imgpatch, self.reduction_matrix)
+            self.patch = pklfile['patch']
+            self.gt = pklfile['gt']
+            self.pos = pklfile['pos']
+            print(self.dataclass + ' data has been built!')
 
 class MyDataset(BaseDataset):
     """CamVid Dataset. Read images, apply augmentation and preprocessing transformations.
-
     Args:
         images_dir (str): path to images folder
         masks_dir (str): path to segmentation masks folder
@@ -103,7 +128,6 @@ class MyDataset(BaseDataset):
             (e.g. flip, scale, etc.)
         preprocessing (albumentations.Compose): data preprocessing
             (e.g. noralization, shape manipulation, etc.)
-
     """
 
     def __init__(self, label_npy, *images_npy):

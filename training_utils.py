@@ -44,12 +44,7 @@ class DataResult():
     def get_confmat(self):
         self.conf_mat = confusion_matrix(self.y_true, self.y_pre,)
 
-    def get_image(self, shape):
-        self.image = np.zeros(shape, 3)
         
-        
-
-
 class TrainProcess():
     def __init__(self, model, mixdata, train_config) -> None:
         super().__init__()
@@ -142,7 +137,7 @@ class TrainProcess():
             valid_acc = self.evaluate(self.valid_loader, self.valid_result)
             print('{} set Accuracy:{:.2%}'.format('Valid', valid_acc))
             if valid_acc > best_validacc:
-                print("new acc:{:.2%}, old acc:{:.2%}".format(valid_acc, best_validacc))
+                print("Higher Valid Accuracy:{:.2%}, Old Valid Accuracy:{:.2%}".format(valid_acc, best_validacc))
                 best_validacc = valid_acc
                 self.bestmodel = self.model.state_dict()
         print('===================Finished Training======================')
@@ -155,13 +150,10 @@ class TrainProcess():
         print('{} set Accuracy:{:.2%}'.format('Test', test_acc))
         
     def evaluate(self, test_loader, data_result: DataResult):
-        '''f
+        '''
         返回accf
         '''
-        y_pre = []
-        y_true = []
         loss_sigma = 0.0
-
         with torch.no_grad():
             for batch_idx, data in enumerate(test_loader):
                 for idx, item in enumerate(data):
@@ -174,11 +166,8 @@ class TrainProcess():
                 loss_sigma += loss.item()
                 _, predicted = torch.max(outputs.data, 1)  # 统计
                 # 统计混淆矩阵
-                y_pre += list(predicted.cpu().numpy())
-                y_true += list(labels.cpu().numpy())
-
-        data_result.y_true = y_true 
-        data_result.y_pre = y_pre
+                data_result.y_pre+= list(predicted.cpu().numpy())
+                data_result.y_true += list(labels.cpu().numpy())
         data_result.get_confmat()
         return data_result.conf_mat.trace() / data_result.conf_mat.sum()
 
@@ -188,7 +177,7 @@ class TrainProcess():
             init.normal_(param, mean=0, std=0.01)
             print(name, param.data)
 
-   
+ 
 if __name__ == '__main__':
     a = DataResult()
     print('end')

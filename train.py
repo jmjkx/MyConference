@@ -14,18 +14,18 @@ from models import (_1DCNN, _2DCNN, _3DCNN, _3DCNN_1DCNN, _3DCNN_AM, PURE3DCNN,
                     PURE3DCNN_2AM, SAE, SAE_AM, DBDA_network, HamidaEtAl,
                     LeeEtAl)
 from training_utils import TrainProcess
-from utils import MyDataset, build_data, plot
+from utils import DataPreProcess, MyDataset, plot
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str,  default='./bloodcell2-2/Split/5/', metavar='D',
                         help='the dataset path you load')
-    parser.add_argument('--train_number', type=int,  default=80, metavar='NTr', help='number of training set') 
-    parser.add_argument('--valid_number', type=int,  default=80, metavar='NTe',
+    parser.add_argument('--train_number', type=int,  default=2000, metavar='NTr', 
                         help='number of training set')
+    parser.add_argument('--valid_number', type=int,  default=2000, metavar='NVa',
+                        help='number of valid set')
     parser.add_argument('--test_number', type=int,  default=-1, metavar='NTe',
                         help='number of test set')
-    parser.add_argument('--savepath', type=str,  default='./bloodcell2-2/result/1', metavar='S', help='experiment result path to save') 
     parser.add_argument('--patchsize', type=int,  default=11, metavar='P',
                         help='patchsize of data')
     parser.add_argument('--modelname', type=str,  default='PURE3DCNN', metavar='P', help='which model to choose') 
@@ -51,38 +51,32 @@ if __name__ == '__main__':
     kb = args.kb
     dim = args.dim
     patchsize = args.patchsize
-    savepath = args.savepath
     modelname = args.modelname
-    if not os.path.exists(savepath):
-        os.makedirs(savepath)
     if NTe == -1:
         d = dataset + 'TrNumber_%s/' % NTr + 'VaNumber_%s/' % NVa + 'TeNumber_all/'
     else:
-        d = dataset + 'TrNumber_%s/' % NTr + 'VaNumber_%s/' % NVa + 'TeNumber_%s/' % NTe 
+        d = dataset + 'TrNumber_%s/' % NTr + 'VaNumber_%s/' % NVa + 'TeNumber_%s/' % NTe
 
-    # 定义超参
+    if not os.path.exists(d):
+        os.makedirs(d)
+
     IMAGE = sio.loadmat('/home/liyuan/Programming/python/'\
                         '高光谱医学/高光谱医学数据/bloodcell2-2.mat')['image']
 
-    if dim != 33:
-        reduction_matrix = sio.loadmat(d  + 'Dim%s_Kw%s_Kb%s.mat'%(dim, kw, kb))['MFA_eigvector']
-                                   
-    else:
-        reduction_matrix = None
-    testpatch, gt_test = build_data(IMAGE, patchsize,  d, 'Te', reduction_matrix=reduction_matrix)
-    trainpatch, gt_train = build_data(IMAGE, patchsize, d, 'Tr', reduction_matrix=reduction_matrix)
-
-    validpatch, gt_valid = build_data(IMAGE, patchsize, d, 'Va', reduction_matrix=reduction_matrix)
+    reduction_matrix = None if dim==IMAGE.shape[2] else sio.loadmat(d + 'Dim%s_Kw%s_Kb%s.mat'%(dim, kw, kb))['MFA_eigvector']
+    testdata = DataPreProcess(IMAGE, patchsize,  d, 'Te', reduction_matrix=reduction_matrix, tasknum=20)
+    traindata = DataPreProcess(IMAGE, patchsize, d, 'Tr', reduction_matrix=reduction_matrix, tasknum=20)
+    validdata = DataPreProcess(IMAGE, patchsize, d, 'Va', reduction_matrix=reduction_matrix, tasknum=20)
 
     # assert trainpatch.shape[0] == 3*NTr, '预处理弄错了'
-    assert trainpatch.shape[3] == dim, '预处理弄错了'
+    assert traindata.patch.shape[3] == dim, '预处理弄错了'
 
-    data_mix = {'train_patch': np.expand_dims(trainpatch.transpose(0, 3, 1, 2), axis=1),
-                'train_gt': gt_train,
-                'test_patch': np.expand_dims(testpatch.transpose(0, 3, 1, 2), axis=1), 
-                'test_gt': gt_test,
-                'valid_patch': np.expand_dims(validpatch.transpose(0, 3, 1, 2), axis=1), 
-                'valid_gt': gt_valid,
+    data_mix = {'train_patch': np.expand_dims(traindata.patch.transpose(0, 3, 1, 2), axis=1),
+                'train_gt': traindata.gt,
+                'test_patch': np.expand_dims(testdata.patch.transpose(0, 3, 1, 2), axis=1), 
+                'test_gt': testdata.gt,
+                'valid_patch': np.expand_dims(validdata.patch.transpose(0, 3, 1, 2), axis=1), 
+                'valid_gt': validdata.gt,
                 }
 
     models = {
@@ -98,29 +92,16 @@ if __name__ == '__main__':
               'PURE3DCNN_2AM': PURE3DCNN_2AM,
               '1DCNN': _1DCNN,
               'DUALPATH': _3DCNN_1DCNN}
-    # trainpatch = trainpatch.squeeze()
-    # testpatch = testpatch.squeeze()
-    # data_mix = {'train_patch': trainpatch,
-    #             'train_gt': gt_train,
-    #             'test_patch': testpatch, 
-    #             'test_gt': gt_test}
 
     model = models[modelname]
     themodel = model(dim).to('cuda')
-    # summary(themodel, input_shape)
     T = TrainProcess(model=themodel,
                      mixdata=data_mix, train_config='./config.yaml')
     T.training_start()
-    name = ''
-    if dim != 33:
-        name = 'mfa_Dim%s_kw%s_kb%s_' % (dim, kw, kb)
+    name = '' if dim==IMAGE.shape[2] else 'mfa_Dim%s_kw%s_kb%s_' % (dim, kw, kb)
     np.save(d  + name + '%s_ConfMat.npy' % modelname, T.test_result.conf_mat)
+
+    imgPos = np.array(list(traindata.pos) + list(validdata.pos) + list(testdata.pos))
+    imgGt = np.array(list(traindata.gt) + list(validdata.gt) + T.test_result.y_pre)
     
-
-
-    index_files = sorted(glob.glob(d +'XTeind_class*.npy'), key=lambda x: int(x[-5]))
-    datasetPos = []
-    for f in index_files:
-        datasetPos += list(np.load(f))
-    datasetPos = np.array(datasetPos)
-    plot(datasetPos, T.test_result.y_pre, IMAGE.shape, './rrr')
+    plot(imgPos, imgGt, IMAGE.shape, d + modelname)

@@ -867,10 +867,6 @@ class _1DCNN(nn.Module):
         self.fc2 = nn.Linear(100, n_classes)
         self.apply(self.weight_init)
 
-       
-
-
-
     def forward(self, x):
         # [In our design architecture, we choose the hyperbolic tangent function tanh(u)] x = x.squeeze(dim=-1).squeeze(dim=-1)
         # x = x.unsqueeze(1)
