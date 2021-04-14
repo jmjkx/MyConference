@@ -58,8 +58,6 @@ class TrainProcess():
         pass
 
     def training_start(self):
-        # 设置随机数种子
-        setup_seed(1993)
         print('--------------------------训练----------------------------')
         # 使用GPU
        
@@ -109,6 +107,8 @@ class TrainProcess():
         self.model = self.model.to('cuda')
         self.model = self.model.double() 
         best_validacc = 0
+        trainacclist = []
+        validacclist = []
         for epoch in range(EPOCH):
             trainloss_sigma = 0.0    # 记录一个epoch的loss之和
             for batch_idx, data in enumerate(self.train_loader):
@@ -127,24 +127,22 @@ class TrainProcess():
                 trainloss_sigma += loss.item()
                 # 每 BATCH_SIZE 个 iteration 打印一次训练信息，loss为 BATCH_SIZE 个 iteration 的平均   
             loss_avg = trainloss_sigma / TRAIN_BATCHSIZE
-            self.train_result.refresh()
             train_acc = self.evaluate(self.train_loader, self.train_result)
+            trainacclist.append(train_acc)
             print("Training: Epoch[{:03}/{:0>3}] Loss: {:.8f} Acc:{:.2%} Lr:{:.2}".format(
             epoch + 1, EPOCH,  loss_avg, train_acc, optimizer.state_dict()['param_groups'][0]['lr']))
             scheduler.step(loss_avg)  # 更新学习率
         # ------------------------------------ 观察模型在验证集上的表现 ------------------------------------
-            self.valid_result.refresh()
             valid_acc = self.evaluate(self.valid_loader, self.valid_result)
+            validacclist.append(valid_acc)
             print('{} set Accuracy:{:.2%}'.format('Valid', valid_acc))
             if valid_acc > best_validacc:
                 print("Higher Valid Accuracy:{:.2%}, Old Valid Accuracy:{:.2%}".format(valid_acc, best_validacc))
                 best_validacc = valid_acc
                 self.bestmodel = self.model.state_dict()
-        print('===================Finished Training======================')
+        print('===================Training Finished ======================')
         self.model.load_state_dict(self.bestmodel)
-        self.valid_result.refresh()
         best_validacc = self.evaluate(self.valid_loader, self.valid_result)
-        self.test_result.refresh()
         test_acc = self.evaluate(self.test_loader, self.test_result) 
         print('Best {} set Accuracy:{:.2%}'.format('Valid', best_validacc)) 
         print('{} set Accuracy:{:.2%}'.format('Test', test_acc))
@@ -153,6 +151,7 @@ class TrainProcess():
         '''
         返回accf
         '''
+        data_result.refresh()
         loss_sigma = 0.0
         with torch.no_grad():
             for batch_idx, data in enumerate(test_loader):

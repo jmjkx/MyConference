@@ -5,23 +5,23 @@
 run(){     
         c=$1
         python train.py  \
-            --train_number 80 \
+            --train_number 4 \
             --test_number 2000 \
-            --valid_number 80 \
-            --modelname 2DCNN \
+            --valid_number 4 \
+            --modelname PURE3DCNN \
             --patchsize 11 \
-            --gpu_ids 1 \
-            --dim 33 \
-            --kw 4 \
-            --kb 26 \
-            --dataset "./bloodcell2-2/Split/$c/" &
+            --gpu_ids 5 \
+            --dim 30 \
+            --kw 9 \
+            --kb 8 \
+            --dataset "./bloodcell1-3/Split/$c/" &
 }
 
 #   for kw in  9
     # do 
-        for c in 1 2 3 4 5 6 7 8 9 10
+        for c in 1 2 3 4 5 6 7 8 9 10 
             do
-            run $c 
+            run $c  
         done
     # done
 

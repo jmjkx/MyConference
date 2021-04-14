@@ -1,9 +1,16 @@
-given1 = input() 
-given1 = given1.replace('已知字符串：{', '')
-given1 = given1.replace('}', '')
-given1 = given1.split(',')
-given2 = input().replace('给定字符串：','')
+import math
 
-for string in given1:
-    if set(given2) == set(string):
-        print(string) 
+import torch
+import torch.nn as nn
+
+criterion = nn.CrossEntropyLoss()
+output = torch.randn(1, 5, requires_grad=True)
+label = torch.tensor([4])
+loss = criterion(output, label)
+ 
+print("网络输出为5类:")
+print(output)
+print("要计算label的类别:")
+print(label)
+print("计算loss的结果:")
+print(loss)

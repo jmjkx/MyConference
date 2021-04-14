@@ -1,11 +1,11 @@
 #!/bin/bash
 for c in 1 2 3 4 5 6 7 8 9 10
 do
-    for n in 5 10 20 40 60 80  
+    for n in 4  
     do
         python datasetsplit.py \
-        --dataset bloodcell2-2 \
-        --savepath ./bloodcell2-2/Split/$c/ \
+        --dataset bloodcell1-3 \
+        --savepath ./bloodcell1-3/Split/$c/ \
         --ntrain $n\
         --nvalid $n\
         --patchsize 11 &

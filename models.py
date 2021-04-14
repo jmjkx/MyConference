@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchsummary
+from sklearn import model_selection, svm
+from sklearn.neighbors import KNeighborsClassifier
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torch.nn import init
@@ -957,9 +959,6 @@ class _3DCNN_1DCNN(nn.Module):
         x_1d = F.relu(self.pool13(x_1d))
         x_1d = x_1d.view(-1, self.features_size1)
         # x_1d = torch.tanh(self.fc11(x_1d))
-       
-
-
         x_3d = self.conv21(x_3d)
         x_3d = self.batch_norm21(x_3d)
         x_3d = self.conv22(x_3d)
@@ -969,15 +968,11 @@ class _3DCNN_1DCNN(nn.Module):
         x_3d = x_3d.view(-1, self.features_size2)
         # x_3d = self.global_pooling(x_3d)
         # x_3d = x_3d.squeeze(-1).squeeze(-1).squeeze(-1)
-
         x = torch.cat([0.3*x_1d, x_3d], dim=1)
         x = self.fc1(x)
         x = self.fc2(x)
         # output = self.full_connection(x)
         # 空间注意力机制
-        return x
-
-
         return x
 
     def _get_flattened_size1(self):
@@ -1003,11 +998,6 @@ class _3DCNN_1DCNN(nn.Module):
             x  = self.conv23(x)
             x  = self.batch_norm23(x)
         return x.numel() 
-
-
-
-
-
 
     @staticmethod
     def weight_init(m):
@@ -1075,8 +1065,31 @@ class _2DCNN(nn.Module):
         x = F.relu(self.pool2(x))
         x = self.conv3(x)
         x = F.relu(self.pool3(x))
-
         x = x.view(-1, self.features_size)
         x = F.sigmoid(self.fc1(x))
         x = self.fc2(x)
         return x
+
+def mysvm(x_train, y_train, x_test):
+    SVM_GRID_PARAMS = [{'kernel': ['rbf'], 'gamma': [1e-1, 1e-2, 1e-3],
+                                       'C': [1, 10, 100, 1000]},
+                   {'kernel': ['linear'], 'C': [0.1, 1, 10, 100, 1000]},
+                   {'kernel': ['poly'], 'degree': [3], 'gamma': [1e-1, 1e-2, 1e-3]}]
+    class_weight = 'balanced'
+   
+    try:
+        clf = svm.SVC(class_weight=class_weight)
+        clf = model_selection.GridSearchCV(clf, SVM_GRID_PARAMS, verbose=5, n_jobs=4)
+        clf.fit(x_train, y_train)
+    except ValueError:
+        clf = svm.SVC(class_weight=class_weight)
+        clf.fit(x_train, y_train)
+    # print("SVM best parameters : {}".format(clf.best_params_))
+    prediction = clf.predict(x_test)
+    return prediction
+
+def myknn(x_train, y_train, x_test):
+    kclf = KNeighborsClassifier(n_neighbors=1)
+    kclf.fit(x_train, y_train)
+    prediction = kclf.predict(x_test)   
+    return prediction 

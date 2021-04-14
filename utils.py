@@ -38,10 +38,9 @@ def normlize(patch):
     return norm_patch
 
 
-def bd_subtask(image_classindlist, gt_class , IMAGE, patchsize, reduction_matrix):
+def bd_subtask(image_classindlist, gt_class , IMAGE, patchsize):
     img_gt = zip(image_classindlist, gt_class)
-    imgpatch= np.empty(shape=(len(image_classindlist), patchsize, patchsize, 33))
-    map = []
+    imgpatch= np.empty(shape=(len(image_classindlist), patchsize, patchsize, IMAGE.shape[2]))
     for idx, (img_indice, gt) in enumerate(tqdm(img_gt)):
         for i in range(patchsize):
             for j in range(patchsize):
@@ -53,7 +52,6 @@ def bd_subtask(image_classindlist, gt_class , IMAGE, patchsize, reduction_matrix
                 else:
                     imgpatch[idx, i, j, :] = IMAGE[img_indice[0]-patchsize//2 + i, 
                                                    img_indice[1]-patchsize//2 + j, :]
-        
     imgpatch = normlize(imgpatch)
     return imgpatch
 
@@ -93,7 +91,7 @@ class DataPreProcess(object):
         except (FileNotFoundError, KeyError):
             self.pos, self.gt = get_posgt(self.datapath, self.dataclass)
             sample_number = len(self.pos)
-            imgpatch = np.empty(shape=(sample_number, self.patchsize, self.patchsize, 33))
+            imgpatch = np.empty(shape=(sample_number, self.patchsize, self.patchsize, self.IMAGE.shape[2]))
             interval = sample_number//self.tasknum
             interval += 1
             print('=================== {0} {2} samples to process with {1} multi-process  ===================='.format(len(self.pos), self.tasknum, self.dataclass))
@@ -101,7 +99,7 @@ class DataPreProcess(object):
             print('starting')
             results = [p.apply_async(bd_subtask, args=(self.pos[i*interval: (i+1)*interval],
                                                        self.gt[i*interval: (i+1)*interval],
-                                                       self.IMAGE, self.patchsize, self.reduction_matrix))
+                                                       self.IMAGE, self.patchsize))
                        for i in range(self.tasknum)]
             p.close()
             p.join()
@@ -148,7 +146,7 @@ class MyDataset(BaseDataset):
         return self.length
 
 
-def plot(pos, y_pre, shape,savepath):
+def plot(pos: list, y_pre: list, shape,savepath):
     img = np.zeros(shape[:2]+(3,))
     for p_idx, p in enumerate(y_pre):
         if p == 0:

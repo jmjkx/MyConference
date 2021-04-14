@@ -16,11 +16,11 @@ if __name__ == '__main__':
                         default='./bloodcell2-2/Split/5',
                         metavar='S', help='the path to save')
     parser.add_argument('--ntrain', type=int, metavar='NTr',
-                        default=2000, help='number of training samples in each class')
+                        default=5, help='number of training samples in each class')
     parser.add_argument('--nvalid', type=int, metavar='NTe',
-                        default=2000, help='number of training samples in each class')
+                        default=5, help='number of training samples in each class')
     parser.add_argument('--ntest', type=int, metavar='NTe',
-                        default=-1, help='number of test samples in each class')
+                        default=2000, help='number of test samples in each class')
     parser.add_argument('--patchsize', type=int, metavar='PS',
                         default=11, help='the number of patchsize')
     args = parser.parse_args()
@@ -61,6 +61,9 @@ if __name__ == '__main__':
                                                  random_state = time.localtime(time.time()).tm_sec, 
                                                  stratify = y_tevaind) 
 
+        assert all([x_trainind.shape[0] == NTr,   
+                    x_testind.shape[0] == NTe,
+                    x_validind.shape[0] == NVa]), "错了"
         np.save(savepath+'XTrind_class%s' % label, x_trainind)
         np.save(savepath+'XTeind_class%s' % label, x_testind)
         np.save(savepath+'YTr_class%s' % label, y_trainind)
@@ -68,4 +71,3 @@ if __name__ == '__main__':
         np.save(savepath+'XVaind_class%s' % label, x_validind)
         np.save(savepath+'YVa_class%s' % label, y_validind)
     print('==================end==================')
-    
