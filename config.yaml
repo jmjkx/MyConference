@@ -3,5 +3,4 @@ learning_rate: 0.005
 train_batchsize: 256 
 test_batchsize: 512 
 valid_batchsize: 256
-epoch: 2000
-writer_path: 'writer'
+epoch: 1500 

@@ -10,14 +10,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import yaml
-from matplotlib import pyplot as plt
-from sklearn.metrics import confusion_matrix
 from tensorboardX import SummaryWriter
 from torch.nn import init
 from torch.utils.data import Dataset as BaseDataset
 from tqdm import tqdm
 
-from utils import MyDataset
+from utils import DataResult, MyDataset
 
 
 def setup_seed(seed):
@@ -31,26 +29,16 @@ def setup_seed(seed):
 #    torch.backends.cuda.matmul.allow_tf32 = True
 #    torch.backends.cudnn.allow_tf32 = True
 
-class DataResult():
-    conf_mat = np.zeros([3, 3])
-    y_pre = []
-    y_true = []
 
-    def refresh(self):
-        self.conf_mat = np.zeros([3, 3])
-        self.y_pre = []
-        self.y_true = []
- 
-    def get_confmat(self):
-        self.conf_mat = confusion_matrix(self.y_true, self.y_pre,)
 
         
 class TrainProcess():
-    def __init__(self, model, mixdata, train_config) -> None:
+    def __init__(self, model, mixdata, train_config, writerpath) -> None:
         super().__init__()
         self.data_mix = mixdata
         self.train_config = train_config
         self.model = model
+        self.writerpath = writerpath
         self.criterion = nn.CrossEntropyLoss()
         self.train_result = DataResult()
         self.valid_result = DataResult()
@@ -69,10 +57,10 @@ class TrainProcess():
         TRAIN_BATCHSIZE = config['train_batchsize'] 
         TEST_BATCHSIZE = config['test_batchsize']
         VALID_BATCHSIZE = config['valid_batchsize']
-        writer_path = config['writer_path'] 
+        writer_path = self.writerpath
         OPTIMIZER = config['optimization'] 
-        writer = SummaryWriter(writer_path)  
-
+        writer = SummaryWriter(writer_path + 'logs/' + datetime.now().strftime("%Y%m%d-%H%M%S"))  
+        writer.add_graph(self.model, torch.rand((1,) + self.data_mix['train_patch'].shape[1:]).cuda()) 
         if OPTIMIZER == 'Adam':
             optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)  
         elif OPTIMIZER == 'SGD':
@@ -83,32 +71,32 @@ class TrainProcess():
         )
 
         training_dataset = MyDataset(self.data_mix['train_gt'], self.data_mix['train_patch'])
-        test_dataset = MyDataset(self.data_mix['test_gt'], self.data_mix['test_patch'])
-        valid_dataset = MyDataset(self.data_mix['valid_gt'], self.data_mix['valid_patch'])
-
         self.train_loader = torch.utils.data.DataLoader(
             dataset=training_dataset,
             batch_size=TRAIN_BATCHSIZE,
             shuffle=True
         )
-
+        test_dataset = MyDataset(self.data_mix['test_gt'], self.data_mix['test_patch'])
         self.test_loader = torch.utils.data.DataLoader(
             dataset=test_dataset,
             batch_size=TEST_BATCHSIZE,
             shuffle=False
         )
-
-        self.valid_loader = torch.utils.data.DataLoader(
-            dataset=valid_dataset,
-            batch_size=VALID_BATCHSIZE,
-            shuffle=True
-        )
+        
+        if self.data_mix['valid_gt'].shape[0] != 0:
+            valid_dataset = MyDataset(self.data_mix['valid_gt'], self.data_mix['valid_patch'])
+            self.valid_loader = torch.utils.data.DataLoader(
+                dataset=valid_dataset,
+                batch_size=VALID_BATCHSIZE,
+                shuffle=True
+            )
+        else:
+            valid_dataset = None
 
         self.model = self.model.to('cuda')
         self.model = self.model.double() 
         best_validacc = 0
-        trainacclist = []
-        validacclist = []
+       
         for epoch in range(EPOCH):
             trainloss_sigma = 0.0    # 记录一个epoch的loss之和
             for batch_idx, data in enumerate(self.train_loader):
@@ -128,25 +116,29 @@ class TrainProcess():
                 # 每 BATCH_SIZE 个 iteration 打印一次训练信息，loss为 BATCH_SIZE 个 iteration 的平均   
             loss_avg = trainloss_sigma / TRAIN_BATCHSIZE
             train_acc = self.evaluate(self.train_loader, self.train_result)
-            trainacclist.append(train_acc)
+            writer.add_scalar('Train Acc', train_acc, global_step=epoch+1) 
+            writer.add_scalar('Train Loss', loss_avg, global_step=epoch+1) 
             print("Training: Epoch[{:03}/{:0>3}] Loss: {:.8f} Acc:{:.2%} Lr:{:.2}".format(
             epoch + 1, EPOCH,  loss_avg, train_acc, optimizer.state_dict()['param_groups'][0]['lr']))
             scheduler.step(loss_avg)  # 更新学习率
         # ------------------------------------ 观察模型在验证集上的表现 ------------------------------------
-            valid_acc = self.evaluate(self.valid_loader, self.valid_result)
-            validacclist.append(valid_acc)
-            print('{} set Accuracy:{:.2%}'.format('Valid', valid_acc))
-            if valid_acc > best_validacc:
-                print("Higher Valid Accuracy:{:.2%}, Old Valid Accuracy:{:.2%}".format(valid_acc, best_validacc))
-                best_validacc = valid_acc
-                self.bestmodel = self.model.state_dict()
+            if valid_dataset:
+                valid_acc = self.evaluate(self.valid_loader, self.valid_result)
+                writer.add_scalar('Valid Acc', valid_acc, global_step=epoch+1)
+                print('{} set Accuracy:{:.2%}'.format('Valid', valid_acc))
+                if valid_acc > best_validacc:
+                    print("Higher Valid Accuracy:{:.2%}, Old Valid Accuracy:{:.2%}".format(valid_acc, best_validacc))
+                    best_validacc = valid_acc
+                    self.bestmodel = self.model.state_dict()
         print('===================Training Finished ======================')
-        self.model.load_state_dict(self.bestmodel)
-        best_validacc = self.evaluate(self.valid_loader, self.valid_result)
+        if valid_dataset:
+            self.model.load_state_dict(self.bestmodel)
         test_acc = self.evaluate(self.test_loader, self.test_result) 
-        print('Best {} set Accuracy:{:.2%}'.format('Valid', best_validacc)) 
+        if valid_dataset:
+            print('Best {} set Accuracy:{:.2%}'.format('Valid', best_validacc)) 
         print('{} set Accuracy:{:.2%}'.format('Test', test_acc))
-        
+        writer.close()
+
     def evaluate(self, test_loader, data_result: DataResult):
         '''
         返回accf

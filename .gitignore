@@ -14,3 +14,4 @@ nni
 *.out
 *.jpg
 *.txt
+/test/

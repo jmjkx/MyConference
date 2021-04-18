@@ -2,6 +2,7 @@ import glob
 import multiprocessing as mp
 import os
 import pickle
+import time
 from datetime import datetime
 
 import numpy as np
@@ -10,21 +11,31 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from sklearn.metrics import confusion_matrix
 from torch.utils.data import Dataset as BaseDataset
 from tqdm import tqdm
 
 
-def get_posgt(d, dataclass):
-    pos_files = sorted(glob.glob(d +'X%sind_class*.npy'%dataclass), key=lambda x: int(x[-5]))
-    datasetPos = []
-    for f in pos_files:
-        datasetPos += list(np.load(f))
-    gt_files = sorted(glob.glob(d +'Y%s_class*.npy'%dataclass), key=lambda x: int(x[-5]))
-    datasetGt = []
-    for f in gt_files:
-        datasetGt += list(np.load(f))
-    return datasetPos, datasetGt
+class DataResult():
+    conf_mat = np.zeros([3, 3])
+    y_pre = []
+    y_true = []
 
+    def refresh(self):
+        self.conf_mat = np.zeros([3, 3])
+        self.y_pre = []
+        self.y_true = []
+ 
+    def get_confmat(self):
+        self.conf_mat = confusion_matrix(self.y_true, self.y_pre,)
+
+
+class ProcessedData(object):
+    def __init__(self, patch, gt, pos) -> None:
+        super().__init__()
+        self.patch = patch
+        self.gt = gt
+        self.pos = pos
 
 def normlize(patch):
     norm_patch = np.zeros(shape=patch.shape)
@@ -38,10 +49,9 @@ def normlize(patch):
     return norm_patch
 
 
-def bd_subtask(image_classindlist, gt_class , IMAGE, patchsize):
-    img_gt = zip(image_classindlist, gt_class)
+def bd_subtask(image_classindlist, IMAGE, patchsize):
     imgpatch= np.empty(shape=(len(image_classindlist), patchsize, patchsize, IMAGE.shape[2]))
-    for idx, (img_indice, gt) in enumerate(tqdm(img_gt)):
+    for idx, img_indice in enumerate(tqdm(image_classindlist)):
         for i in range(patchsize):
             for j in range(patchsize):
                 if any([img_indice[0]-patchsize//2 + i  < 0,
@@ -58,63 +68,96 @@ def bd_subtask(image_classindlist, gt_class , IMAGE, patchsize):
 
 class DataPreProcess(object):
     def __init__(self,
-                 IMAGE,
-                 patchsize, 
-                 datapath,
-                 dataclass,
-                 reduction_matrix=None,
+                 IMAGE: np.array,
+                 patchsize: int,
+                 datapath: str,
                  tasknum=20) -> None:
         self.IMAGE = IMAGE
         self.patchsize = patchsize
         self.datapath = datapath
-        self.dataclass = dataclass
-        self.reduction_matrix = reduction_matrix
         self.tasknum = tasknum
         self._build()
         pass
     
     def _build(self):
-        pklName = {'Tr': 'TrainData.pkl',
-                   'Te': 'TestData.pkl',
-                   'Va': 'ValidData.pkl', }
-        
         try:
-            with open(self.datapath + pklName[self.dataclass], 'rb') as f:
+            with open(self.datapath + 'PatchGt_%s.pkl'%str(self.patchsize), 'rb') as f:
                 pklfile = pickle.load(f)
-            if self.reduction_matrix is not None:
-                pklfile['patch'] = np.matmul(pklfile['patch'], self.reduction_matrix)
-            self.patch = pklfile['patch']
-            self.gt = pklfile['gt']
-            self.pos = pklfile['pos']
-            print('Lucky Dog! ' + self.dataclass + ' data already exists!')
+            print('Lucky Dog! Patch data already exists!')
+            self.processeddata = pklfile
 
         except (FileNotFoundError, KeyError):
-            self.pos, self.gt = get_posgt(self.datapath, self.dataclass)
-            sample_number = len(self.pos)
+            with open(self.datapath + 'spliteddata.pkl', 'rb') as f:
+                splitimggt = pickle.load(f)
+            trainpos, traingt = self.parsespdata(splitimggt['train'])
+            testpos, testgt = self.parsespdata(splitimggt['test'])
+            traingt = np.array(traingt)
+            testgt = np.array(testgt)
+            if splitimggt['valid'] is None:
+                validpos = np.empty((0,))
+                validgt = np.empty((0,))
+            else:
+                validpos, validgt = self.parsespdata(splitimggt['valid'])
+                validgt = np.array(validgt)
+            
+            trainpatch = self.getpatch(trainpos, self.IMAGE, 'Training')
+            validpatch = self. getpatch(validpos, self.IMAGE, 'Valid')
+            testpatch = self.getpatch(testpos, self.IMAGE, 'Test')
+            self.processeddata = {}
+            self.processeddata['train'] = ProcessedData(trainpatch, traingt, trainpos)
+            self.processeddata['test'] = ProcessedData(testpatch, testgt, testpos)
+            self.processeddata['valid'] = ProcessedData(validpatch, validgt, validpos)
+           
+                
+            with open(self.datapath + 'PatchGt_%s.pkl'%str(self.patchsize), 'wb') as f:
+                pickle.dump(self.processeddata, f, pickle.HIGHEST_PROTOCOL)
+            print('Patch data has been built!')
+
+    def parsespdata(self, spdata) -> list:
+        pos = []
+        gt = []
+        for key, value in spdata.items():
+            pos = pos + list(value[0])
+            gt = gt + list(value[1])
+        return pos, gt
+
+    def getpatch(self, posdata, image, dataname):
+        if posdata == None:
+            return None
+        else:
+            sample_number = len(posdata)
             imgpatch = np.empty(shape=(sample_number, self.patchsize, self.patchsize, self.IMAGE.shape[2]))
             interval = sample_number//self.tasknum
             interval += 1
-            print('=================== {0} {2} samples to process with {1} multi-process  ===================='.format(len(self.pos), self.tasknum, self.dataclass))
+            print('=================== {0} {2} samples to process with {1} multi-process  ===================='.format(len(posdata), self.tasknum, dataname))
             p = mp.Pool(self.tasknum)
             print('starting')
-            results = [p.apply_async(bd_subtask, args=(self.pos[i*interval: (i+1)*interval],
-                                                       self.gt[i*interval: (i+1)*interval],
-                                                       self.IMAGE, self.patchsize))
-                       for i in range(self.tasknum)]
+            results = [p.apply_async(self.bd_subtask, args=(posdata[i*interval: (i+1)*interval],
+                                                        image, self.patchsize))
+                        for i in range(self.tasknum)]
             p.close()
             p.join()
             results = [p.get() for p in results]
             for idx, imp in enumerate(results):
-                imgpatch[idx*interval:idx*interval+imp.shape[0]] = imp
-            pklfile = {'patch': imgpatch, 'gt': np.array(self.gt), 'pos': np.array(self.pos)} 
-            with open(self.datapath + pklName[self.dataclass], 'wb') as f:
-                pickle.dump(pklfile, f, pickle.HIGHEST_PROTOCOL)
-            if self.reduction_matrix is not None:
-                imgpatch = np.matmul(imgpatch, self.reduction_matrix)
-            self.patch = pklfile['patch']
-            self.gt = pklfile['gt']
-            self.pos = pklfile['pos']
-            print(self.dataclass + ' data has been built!')
+                    imgpatch[idx*interval:idx*interval+imp.shape[0]] = imp
+            return imgpatch
+
+    def bd_subtask(self, image_classindlist, IMAGE, patchsize):
+        imgpatch= np.empty(shape=(len(image_classindlist), patchsize, patchsize, IMAGE.shape[2]))
+        for idx, img_pos in enumerate(tqdm(image_classindlist)):
+            for i in range(patchsize):
+                for j in range(patchsize):
+                    if any([img_pos[0]-patchsize//2 + i  < 0,
+                            img_pos[0]-patchsize//2 + i > IMAGE.shape[0] - 1,
+                            img_pos[1]-patchsize//2 + j < 0,
+                            img_pos[1]-patchsize//2 + j > IMAGE.shape[1] - 1]):
+                        imgpatch[idx, i, j, :] = IMAGE[img_pos[0], img_pos[1], :]
+                    else:
+                        imgpatch[idx, i, j, :] = IMAGE[img_pos[0]-patchsize//2 + i, 
+                                                        img_pos[1]-patchsize//2 + j, :]
+        imgpatch = normlize(imgpatch)
+        return imgpatch
+
 
 class MyDataset(BaseDataset):
     """CamVid Dataset. Read images, apply augmentation and preprocessing transformations.
@@ -146,8 +189,8 @@ class MyDataset(BaseDataset):
         return self.length
 
 
-def plot(pos: list, y_pre: list, shape,savepath):
-    img = np.zeros(shape[:2]+(3,))
+def plot(pos: list, y_pre: list, shape, savepath):
+    img = np.zeros(shape[:2]+(3,), dtype=np.int)
     for p_idx, p in enumerate(y_pre):
         if p == 0:
             color = np.array([0, 0, 255])
@@ -173,3 +216,120 @@ def plot(pos: list, y_pre: list, shape,savepath):
         pdf.savefig(bbox_inches = 'tight')  # saves the current figure into a pdf page
         plt.close()
     print(savepath + '.pdf ' + 'has been saved') 
+
+
+def splitdata(image,
+              groudtruth,
+              savepath,
+              trainnum=0.1,
+              validnum=0.1,
+              testnum=0.8,
+              ):
+    from sklearn.model_selection import train_test_split
+    from sklearn.utils.random import sample_without_replacement
+
+    if os.path.exists(savepath + 'spliteddata.pkl'):
+        print('恭喜你， 划分数据(未取patch)已经存在')
+        with open(savepath + 'spliteddata.pkl', 'rb') as f:
+            return pickle.load(f)
+            
+    size1 = image.shape[0]
+    size2 = image.shape[1]
+    img_pos = np.zeros(shape=((size1)*(size2),2), dtype=np.int)
+    gt = np.zeros(shape=((size1)*(size2),), dtype=np.int)
+    t = 0
+    for i in range(size1):
+        for j in range(size2):
+           img_pos[t] = np.array([i, j])    
+           gt[t] = np.array(groudtruth[i, j])
+           t += 1
+
+    spliteddata = {'train':{}, 'valid':{}, 'test':{}}
+    for label in range(0, groudtruth.max()+1):
+        indice_class = np.where(gt==label)[0]
+        gt_class = gt[indice_class]
+        imgpos_class = img_pos[indice_class]
+        samplepos = None
+        if trainnum+validnum+testnum > 1 and testnum != -1:
+            samplepos = sample_without_replacement(imgpos_class.shape[0],
+                                             trainnum+validnum+testnum)
+        elif testnum != -1:
+            samplepos = sample_without_replacement(imgpos_class.shape[0],
+                                             imgpos_class.shape[0]*(trainnum+validnum+testnum))
+        if samplepos:
+            imgpos_class = imgpos_class[samplepos]
+            gt_class = gt_class[samplepos]
+
+        if trainnum >= 1:
+            tevasize  = (gt_class.shape[0] - trainnum) / gt_class.shape[0]
+        else: 
+            tevasize = 1 - trainnum
+
+        pos_train, pos_teva,\
+        y_train, y_teva = train_test_split(imgpos_class, gt_class, 
+                                                test_size = tevasize,
+                                                random_state = time.localtime(time.time()).tm_sec, 
+                                                stratify = gt_class)
+        if testnum == -1:
+            testsize = (gt_class.shape[0] - trainnum - validnum) / (gt_class.shape[0] - trainnum)
+        else:
+            testsize  = testnum / (validnum + testnum)
+        spliteddata['train'].update({str(label):(pos_train, y_train)})
+        if testsize == 1:
+            pos_test, y_test = pos_teva, y_teva
+            spliteddata['valid'] = None
+        else:
+            pos_valid, pos_test,\
+            y_valid, y_test = train_test_split(pos_teva, y_teva, 
+                                                    test_size = testsize ,
+                                                    random_state = time.localtime(time.time()).tm_sec, 
+                                                    stratify = y_teva) 
+            spliteddata['valid'].update({str(label):(pos_valid, y_valid)})
+        spliteddata['test'].update({str(label):(pos_test, y_test)})
+        
+    with open(savepath + 'spliteddata.pkl', 'wb') as f:
+            pickle.dump(spliteddata, f, pickle.HIGHEST_PROTOCOL)
+    print('=============split finished===============')
+    return spliteddata
+
+def setpath(dataset, trialnumber, NTr, NVa, NTe, modelname):
+    foldertype = 'proportion' if NTe + NTr + NVa <= 1 else 'number'
+    if NTe == -1:
+        datapath = './' + dataset + '/Split/'+ foldertype + '/Tr_%s/' % NTr + 'Va_%s/' % NVa + 'Te_all/%s/'%str(trialnumber)
+    else:
+        datapath = './' + dataset + '/Split/' + foldertype + '/Tr_%s/' % NTr + 'Va_%s/' % NVa + 'Te%s/%s/' % (NTe, str(trialnumber))
+    resultpath = datapath + 'result/%s/'%modelname
+    if not os.path.exists(resultpath):
+        os.makedirs(resultpath)
+    imagepath = datapath + 'image/%s/'%modelname 
+    if not os.path.exists(imagepath):
+        os.makedirs(imagepath)
+    return resultpath, imagepath, datapath
+
+def myplot(processeddata, IMAGE, imagepath, trainingresult: DataResult):
+    imgPos = np.array(list(processeddata['train'].pos) + list(processeddata['valid'].pos) + list(processeddata['test'].pos))
+    imgGt = np.array(list(processeddata['train'].gt) + list(processeddata['valid'].gt) + trainingresult.y_pre)
+    plot(imgPos, imgGt, IMAGE.shape, imagepath + 'testprediction')
+    imgPos = np.array(list(processeddata['train'].pos) + list(processeddata['valid'].pos))
+    imgGt = np.array(list(processeddata['train'].gt) + list(processeddata['valid'].gt))
+    plot(imgPos, imgGt, IMAGE.shape, imagepath + 'traindata')
+    imgPos = np.array(list(processeddata['train'].pos) + list(processeddata['valid'].pos) + list(processeddata['test'].pos))
+    imgGt = np.array(list(processeddata['train'].gt) + list(processeddata['valid'].gt) + trainingresult.y_true)
+    plot(imgPos, imgGt, IMAGE.shape, imagepath + 'groundtruth')
+
+
+
+if __name__ == '__main__':
+    IMAGE = sio.loadmat('/home/liyuan/Programming/python/'\
+                        '高光谱医学/高光谱医学数据/bloodcell1-3.mat')['image']
+    GND = sio.loadmat('/home/liyuan/Programming/python/'\
+                        '高光谱医学/高光谱医学数据/bloodcell1-3.mat')['map']
+    splitdata(IMAGE,
+              GND,
+              './test/',
+              trainnum=0.2,
+              validnum=0,
+              testnum=0.8
+              )
+
+    D = DataPreProcess(IMAGE, datapath='./test/', patchsize=7)
