@@ -5,16 +5,16 @@
 run(){     
         c=$1
         python train.py  \
-            --train_number 4 \
+            --trial_number $c \
+            --train_number 70 \
             --test_number 2000 \
-            --valid_number 4 \
-            --modelname PURE3DCNN \
+            --valid_number 70 \
+            --modelname 2DCNN \
             --patchsize 11 \
-            --gpu_ids 5 \
-            --dim 30 \
+            --gpu_ids 6 \
+            --dim 33 \
             --kw 9 \
-            --kb 8 \
-            --dataset "./bloodcell1-3/Split/$c/" &
+            --kb 8 &
 }
 
 #   for kw in  9

@@ -1,6 +1,7 @@
 import argparse
 import glob
 import os
+import pickle
 import warnings
 
 import numpy as np
@@ -13,7 +14,7 @@ from AutoGPU import autoGPU
 from compare_model import SAE_3DCNN
 from models import (_1DCNN, _2DCNN, _3DCNN, _3DCNN_1DCNN, _3DCNN_AM, PURE3DCNN,
                     PURE3DCNN_2AM, SAE, SAE_AM, DBDA_network, HamidaEtAl,
-                    LeeEtAl, myknn, mysvm)
+                    LeeEtAl, SSRN_network, myknn, mysvm)
 from training_utils import TrainProcess, setup_seed
 from utils import DataPreProcess, myplot, plot, setpath, splitdata
 
@@ -25,15 +26,15 @@ if __name__ == '__main__':
                         help='the dataset path you load')
     parser.add_argument('--trial_number', type=int,  default=1, metavar='T',
                         help='the time you do this trial')
-    parser.add_argument('--train_number', type=int,  default=160, metavar='NTr', 
+    parser.add_argument('--train_number', type=int,  default=30, metavar='NTr', 
                         help='number of training set')
-    parser.add_argument('--valid_number', type=int,  default=0, metavar='NVa',
+    parser.add_argument('--valid_number', type=int,  default=30, metavar='NVa',
                         help='number of valid set')
-    parser.add_argument('--test_number', type=int,  default=-1, metavar='NTe',
+    parser.add_argument('--test_number', type=int,  default=2000, metavar='NTe',
                         help='number of test set')
     parser.add_argument('--patchsize', type=int,  default=11, metavar='P',
                         help='patchsize of data')
-    parser.add_argument('--modelname', type=str,  default='PURE3DCNN', metavar='P', help='which model to choose') 
+    parser.add_argument('--modelname', type=str,  default='SSRN', metavar='P', help='which model to choose') 
     parser.add_argument('--gpu_ids', type=int,  default=7, metavar='G',
                         help='which gpu to use')
     parser.add_argument('--kw', type=int,  default=9, metavar='kw', help='MFA kw')
@@ -76,6 +77,17 @@ if __name__ == '__main__':
                 'valid_patch': None if processeddata['valid'] is None else np.expand_dims(processeddata['valid'].patch.transpose(0, 3, 1, 2), axis=1), 
                 'valid_gt': None if processeddata['valid'] is None else processeddata['valid'].gt,
                 }
+    # data_mix = {'train_patch': np.expand_dims(np.load('A2S2K-ResNet/SSRN/x_train.npy'), axis=1),
+    #             'train_gt':np.load('A2S2K-ResNet/SSRN/y_train.npy'),
+    #             'test_patch': np.expand_dims(np.load('A2S2K-ResNet/SSRN/x_test.npy'), axis=1), 
+    #             'test_gt': np.load('A2S2K-ResNet/SSRN/y_test.npy'),
+    #             'valid_patch': np.expand_dims(np.load('A2S2K-ResNet/SSRN/x_val.npy'), axis=1), 
+    #             'valid_gt': np.load('A2S2K-ResNet/SSRN/y_val.npy'),
+    #             }
+
+    assert data_mix['train_patch'].shape[0]==3*NTr, 'error'
+    assert data_mix['test_patch'].shape[0]==3*NTe, 'error'
+    assert data_mix['valid_patch'].shape[0]==3*NVa, 'error'
 
     models = {
               'SAE_3DCNN': SAE_3DCNN,
@@ -89,7 +101,8 @@ if __name__ == '__main__':
               'DBDA': DBDA_network,
               'PURE3DCNN_2AM': PURE3DCNN_2AM,
               '1DCNN': _1DCNN,
-              'DUALPATH': _3DCNN_1DCNN}
+              'DUALPATH': _3DCNN_1DCNN,
+              'SSRN':SSRN_network}
 
     model = models[modelname]
     themodel = model(dim).to('cuda')
@@ -102,5 +115,6 @@ if __name__ == '__main__':
 
     name = '' if dim==IMAGE.shape[2] else 'mfa_Dim%s_kw%s_kb%s_' % (dim, kw, kb)
     
-    np.save(resultpath + '%s_ConfMat.npy' % modelname, T.test_result.conf_mat)
+    with open(resultpath + 'result.pkl', 'wb') as f:
+        pickle.dump(T.test_result, f, pickle.HIGHEST_PROTOCOL)
     myplot(processeddata, IMAGE, imagepath, T.test_result)

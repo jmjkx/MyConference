@@ -9,7 +9,6 @@ import numpy as np
 import scipy.io as sio
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 from sklearn.metrics import confusion_matrix
 from torch.utils.data import Dataset as BaseDataset
@@ -40,7 +39,7 @@ class ProcessedData(object):
 def normlize(patch):
     norm_patch = np.zeros(shape=patch.shape)
     for batchidx in range(patch.shape[0]):
-        if len(patch[0].shape) > 2:
+        if len(patch.shape) > 2:
             norm_patch[batchidx] = normlize(patch[batchidx])
         else:
             image = patch[batchidx, :]
@@ -100,9 +99,34 @@ class DataPreProcess(object):
                 validpos, validgt = self.parsespdata(splitimggt['valid'])
                 validgt = np.array(validgt)
             
+            # def mysort(x):
+            #     score = x[0][0] + x[0][1]/10000
+            #     return score
+            
+            # def newsequence(pklfile):
+            #     pos = []
+            #     gt = []
+            #     for key, value in pklfile.items():
+            #             pos += list(value[0])
+            #             gt += list(value[1])
+            #     mixdata = zip(pos, gt)
+            #     mixdata_list = [(pos, gt) for pos, gt in mixdata]
+            #     mixdata_list = sorted(mixdata_list, key=mysort)
+            #     pos_list = [x[0] for x in mixdata_list]
+            #     gt_list = [x[1] for x in mixdata_list]
+            #     return np.array(pos_list), np.array(gt_list)
+
+            # trainpos, traingt = newsequence(splitimggt['train'])
+            # testpos, testgt = newsequence(splitimggt['test'])
+
+
             trainpatch = self.getpatch(trainpos, self.IMAGE, 'Training')
             validpatch = self. getpatch(validpos, self.IMAGE, 'Valid')
             testpatch = self.getpatch(testpos, self.IMAGE, 'Test')
+
+            
+
+
             self.processeddata = {}
             self.processeddata['train'] = ProcessedData(trainpatch, traingt, trainpos)
             self.processeddata['test'] = ProcessedData(testpatch, testgt, testpos)
@@ -122,7 +146,7 @@ class DataPreProcess(object):
         return pos, gt
 
     def getpatch(self, posdata, image, dataname):
-        if posdata == None:
+        if posdata is None:
             return None
         else:
             sample_number = len(posdata)
@@ -256,7 +280,7 @@ def splitdata(image,
         elif testnum != -1:
             samplepos = sample_without_replacement(imgpos_class.shape[0],
                                              imgpos_class.shape[0]*(trainnum+validnum+testnum))
-        if samplepos:
+        if samplepos is not None:
             imgpos_class = imgpos_class[samplepos]
             gt_class = gt_class[samplepos]
 

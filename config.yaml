@@ -1,6 +1,6 @@
-optimization: SGD 
-learning_rate: 0.005
+optimization: Adam 
+learning_rate: 0.001
 train_batchsize: 256 
 test_batchsize: 512 
-valid_batchsize: 256
-epoch: 1500 
+valid_batchsize: 256 
+epoch: 1000

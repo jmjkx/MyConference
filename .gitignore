@@ -1,6 +1,7 @@
 *.npy
 nni
 *.pyc
+*.pkl
 *.mat
 /jiangwei/
 *.iiplab-server
@@ -15,3 +16,4 @@ nni
 *.jpg
 *.txt
 /test/
+/A2S2K-ResNet/

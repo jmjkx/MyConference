@@ -48,7 +48,6 @@ class TrainProcess():
     def training_start(self):
         print('--------------------------训练----------------------------')
         # 使用GPU
-       
         with open(self.train_config) as file:
             dict = file.read()
             config = yaml.load(dict, Loader=yaml.FullLoader)
@@ -60,15 +59,23 @@ class TrainProcess():
         writer_path = self.writerpath
         OPTIMIZER = config['optimization'] 
         writer = SummaryWriter(writer_path + 'logs/' + datetime.now().strftime("%Y%m%d-%H%M%S"))  
-        writer.add_graph(self.model, torch.rand((1,) + self.data_mix['train_patch'].shape[1:]).cuda()) 
+        # writer.add_graph(self.model, torch.rand((1,) + self.data_mix['train_patch'].shape[1:]).cuda()) 
         if OPTIMIZER == 'Adam':
-            optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)  
+            # optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)  
+            optimizer = optim.Adam(
+            self.model.parameters(),
+            lr=learning_rate,
+            betas=(0.9, 0.999),
+            eps=1e-8,
+            weight_decay=0)
         elif OPTIMIZER == 'SGD':
             optimizer = optim.SGD(self.model.parameters(), lr=learning_rate) 
-         # 损失函数
+        #  损失函数
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', factor=0.5, patience=5
         )
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        #     optimizer, 15, eta_min=0.0, last_epoch=-1)
 
         training_dataset = MyDataset(self.data_mix['train_gt'], self.data_mix['train_patch'])
         self.train_loader = torch.utils.data.DataLoader(
