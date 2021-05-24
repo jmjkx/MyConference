@@ -1,5 +1,5 @@
 {
-    "python.pythonPath": "/home/liyuan/anaconda3/envs/Torch16/bin/python",
+    "python.pythonPath": "F:\\Yuan\\anaconda\\envs\\torch16\\python.exe",
     "python.linting.pylintEnabled": false,
     "python.linting.flake8Enabled": true,
     "python.languageServer": "Pylance",

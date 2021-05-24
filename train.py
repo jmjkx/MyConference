@@ -1,14 +1,10 @@
 import argparse
-import glob
 import os
 import pickle
 import warnings
 
 import numpy as np
 import scipy.io as sio
-import torch
-from torchsummary import summary
-from tqdm import tqdm
 
 from AutoGPU import autoGPU
 from compare_model import SAE_3DCNN
@@ -30,7 +26,7 @@ if __name__ == '__main__':
                         help='number of training set')
     parser.add_argument('--valid_number', type=int,  default=30, metavar='NVa',
                         help='number of valid set')
-    parser.add_argument('--test_number', type=int,  default=2000, metavar='NTe',
+    parser.add_argument('--test_number', type=int,  default=-1, metavar='NTe',
                         help='number of test set')
     parser.add_argument('--patchsize', type=int,  default=11, metavar='P',
                         help='patchsize of data')
@@ -61,14 +57,12 @@ if __name__ == '__main__':
 
     resultpath, imagepath, datapath = setpath(dataset, trialnumber , NTr, NVa, NTe, modelname)
     
-    IMAGE = sio.loadmat('/home/liyuan/Programming/python/'\
-                        '高光谱医学/高光谱医学数据/bloodcell1-3.mat')['image']
-    GND = sio.loadmat('/home/liyuan/Programming/python/'\
-                        '高光谱医学/高光谱医学数据/bloodcell1-3.mat')['map']
+    IMAGE = sio.loadmat('00microscope medical image data\sample1-3/bloodcell1-3.mat')['image']
+    GND = sio.loadmat('00microscope medical image data\sample1-3/bloodcell1-3.mat')['map']
     spliteddata = splitdata(IMAGE, GND, datapath , trainnum=NTr, validnum=NVa, testnum=NTe)
 
     reduction_matrix = None if dim==IMAGE.shape[2] else sio.loadmat(resultpath + 'Dim%s_Kw%s_Kb%s.mat'%(dim, kw, kb))['MFA_eigvector']
-    processeddata = DataPreProcess(IMAGE, patchsize, datapath).processeddata
+    processeddata = DataPreProcess(IMAGE, patchsize, datapath, 5).processeddata
 
     data_mix = {'train_patch': np.expand_dims(processeddata['train'].patch.transpose(0, 3, 1, 2), axis=1),
                 'train_gt': processeddata['train'].gt,

@@ -119,28 +119,21 @@ class DataPreProcess(object):
             # trainpos, traingt = newsequence(splitimggt['train'])
             # testpos, testgt = newsequence(splitimggt['test'])
 
-
             trainpatch = self.getpatch(trainpos, self.IMAGE, 'Training')
             validpatch = self. getpatch(validpos, self.IMAGE, 'Valid')
             testpatch = self.getpatch(testpos, self.IMAGE, 'Test')
-
-            
-
-
             self.processeddata = {}
             self.processeddata['train'] = ProcessedData(trainpatch, traingt, trainpos)
             self.processeddata['test'] = ProcessedData(testpatch, testgt, testpos)
             self.processeddata['valid'] = ProcessedData(validpatch, validgt, validpos)
-           
-                
-            with open(self.datapath + 'PatchGt_%s.pkl'%str(self.patchsize), 'wb') as f:
-                pickle.dump(self.processeddata, f, pickle.HIGHEST_PROTOCOL)
+            # with open(self.datapath + 'PatchGt_%s.pkl'%str(self.patchsize), 'wb') as f:
+            #     pickle.dump(self.processeddata, f, pickle.HIGHEST_PROTOCOL)
             print('Patch data has been built!')
 
     def parsespdata(self, spdata) -> list:
         pos = []
         gt = []
-        for key, value in spdata.items():
+        for _, value in spdata.items():
             pos = pos + list(value[0])
             gt = gt + list(value[1])
         return pos, gt
@@ -274,38 +267,37 @@ def splitdata(image,
         gt_class = gt[indice_class]
         imgpos_class = img_pos[indice_class]
         samplepos = None
-        if trainnum+validnum+testnum > 1 and testnum != -1:
+
+        nte = imgpos_class.shape[0] - trainnum - validnum if testnum == -1 else testnum
+
+        if trainnum+validnum+nte> 1 :
             samplepos = sample_without_replacement(imgpos_class.shape[0],
-                                             trainnum+validnum+testnum)
-        elif testnum != -1:
+                                                    trainnum+validnum+nte)
+        elif trainnum+validnum+nte< 1:
             samplepos = sample_without_replacement(imgpos_class.shape[0],
-                                             imgpos_class.shape[0]*(trainnum+validnum+testnum))
+                                             imgpos_class.shape[0]*(trainnum+validnum+nte))
         if samplepos is not None:
             imgpos_class = imgpos_class[samplepos]
             gt_class = gt_class[samplepos]
 
-        if trainnum >= 1:
-            tevasize  = (gt_class.shape[0] - trainnum) / gt_class.shape[0]
-        else: 
-            tevasize = 1 - trainnum
 
         pos_train, pos_teva,\
         y_train, y_teva = train_test_split(imgpos_class, gt_class, 
-                                                test_size = tevasize,
-                                                random_state = time.localtime(time.time()).tm_sec, 
-                                                stratify = gt_class)
-        if testnum == -1:
-            testsize = (gt_class.shape[0] - trainnum - validnum) / (gt_class.shape[0] - trainnum)
-        else:
-            testsize  = testnum / (validnum + testnum)
+                                           train_size = trainnum,
+                                           random_state = time.localtime(time.time()).tm_sec, 
+                                           stratify = gt_class)
         spliteddata['train'].update({str(label):(pos_train, y_train)})
+
+        
+        testsize = nte / (validnum + nte) if nte < 1 else nte
+
         if testsize == 1:
             pos_test, y_test = pos_teva, y_teva
             spliteddata['valid'] = None
         else:
             pos_valid, pos_test,\
             y_valid, y_test = train_test_split(pos_teva, y_teva, 
-                                                    test_size = testsize ,
+                                                    test_size = testsize,
                                                     random_state = time.localtime(time.time()).tm_sec, 
                                                     stratify = y_teva) 
             spliteddata['valid'].update({str(label):(pos_valid, y_valid)})
